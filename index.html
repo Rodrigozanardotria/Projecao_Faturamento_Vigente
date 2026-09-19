@@ -112,6 +112,31 @@ body{
 }
 .theme-toggle:hover{background:rgba(255,255,255,.22);}
 .theme-toggle svg{width:18px; height:18px;}
+
+/* ---- Mobile: rotate-to-landscape floating button ---- */
+.rotate-fab{
+  display:none; position:fixed; right:18px; bottom:18px; z-index:300;
+  align-items:center; gap:8px; border:none; border-radius:999px; cursor:pointer;
+  background:linear-gradient(135deg, var(--brand-orange), var(--brand-orange-2)); color:#fff;
+  padding:13px 18px 13px 15px; font-size:13.5px; font-weight:700;
+  box-shadow:0 6px 18px rgba(0,0,0,.3); -webkit-tap-highlight-color:transparent;
+}
+.rotate-fab svg{width:20px; height:20px; flex:none;}
+.rotate-fab:active{transform:scale(.96);}
+.rotate-fab.exit{
+  display:none; right:18px; bottom:18px; left:auto; padding:13px; background:rgba(20,20,20,.75);
+}
+@media (max-width:900px) and (orientation:portrait){
+  .rotate-fab{display:flex;}
+}
+.rotate-toast{
+  position:fixed; left:50%; bottom:86px; transform:translateX(-50%) translateY(20px);
+  max-width:86vw; background:rgba(15,15,15,.92); color:#fff; padding:12px 16px; border-radius:10px;
+  font-size:13px; font-weight:600; text-align:center; z-index:301; box-shadow:0 6px 18px rgba(0,0,0,.35);
+  opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;
+}
+.rotate-toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
 .tabs{display:flex; gap:6px; padding:10px 24px 0; background:var(--surface-1); border-bottom:1px solid var(--grid); position:sticky; top:94px; z-index:40;}
 .tab-btn{
   border:none; background:transparent; padding:12px 17px; font-size:14.5px; font-weight:600;
@@ -270,6 +295,14 @@ footer.app-footer{text-align:center; color:var(--muted); font-size:12px; padding
     </button>
   </div>
 </div>
+<button id="rotateBtn" class="rotate-fab" type="button" title="Girar para paisagem" aria-label="Girar para paisagem">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="14" height="10" rx="2"/><path d="M20 8v1a2 2 0 0 1-2 2h-1"/><path d="M20 16v-1a2 2 0 0 0-2-2h-1"/><path d="M17 4l3 3-3 3"/><path d="M17 20l3-3-3-3"/></svg>
+  <span>Girar para paisagem</span>
+</button>
+<button id="exitLandscapeBtn" class="rotate-fab exit" type="button" title="Sair da tela cheia" aria-label="Sair da tela cheia" style="display:none;">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+</button>
+<div id="rotateToast" class="rotate-toast"></div>
 <div class="tabs">
   <button class="tab-btn active" data-tab="mc">Margem de Contribuição</button>
   <button class="tab-btn" data-tab="daily">Resultado Diário</button>
@@ -1461,6 +1494,54 @@ function initTheme(){
   });
 }
 
+/* ---- Mobile: força tela cheia + paisagem ao tocar no botão flutuante.
+   iOS Safari não implementa a Screen Orientation Lock API (nem sempre a Fullscreen API
+   pra elementos comuns) — nesses casos cai no aviso pedindo pra girar manualmente, em vez
+   de fingir que funcionou. Em Android/Chrome com suporte, trava mesmo a orientação. ---- */
+let rotateToastTimer = null;
+function showRotateToast(msg){
+  const toast = document.getElementById('rotateToast');
+  if(!toast) return;
+  toast.textContent = msg;
+  toast.classList.add('show');
+  if(rotateToastTimer) clearTimeout(rotateToastTimer);
+  rotateToastTimer = setTimeout(() => toast.classList.remove('show'), 4200);
+}
+async function goLandscape(){
+  const el = document.documentElement;
+  try{
+    if(el.requestFullscreen) await el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  }catch(err){ /* segue mesmo sem tela cheia — a trava de orientação pode não precisar dela */ }
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      await screen.orientation.lock('landscape');
+      return;
+    }
+    throw new Error('sem suporte');
+  }catch(err){
+    showRotateToast('Seu navegador não permite girar automaticamente aqui — gire seu celular manualmente para o modo paisagem.');
+  }
+}
+function initRotateButton(){
+  const rotateBtn = document.getElementById('rotateBtn');
+  const exitBtn = document.getElementById('exitLandscapeBtn');
+  if(!rotateBtn || !exitBtn) return;
+  rotateBtn.addEventListener('click', goLandscape);
+  exitBtn.addEventListener('click', () => {
+    try{ if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); }catch(err){}
+    if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+    else if(document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+  });
+  function syncFullscreenState(){
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    exitBtn.style.display = isFs ? 'flex' : 'none';
+    rotateBtn.style.display = isFs ? 'none' : '';
+  }
+  document.addEventListener('fullscreenchange', syncFullscreenState);
+  document.addEventListener('webkitfullscreenchange', syncFullscreenState);
+}
+
 /* ---------------- WIRING ---------------- */
 function renderAll(){
   renderMC(currentMonth);
@@ -1470,6 +1551,7 @@ function renderAll(){
 
 function init(){
   initTheme();
+  initRotateButton();
 
   const sel = document.getElementById('monthSelect');
   sel.addEventListener('change', () => { currentMonth = sel.value; renderAll(); });
